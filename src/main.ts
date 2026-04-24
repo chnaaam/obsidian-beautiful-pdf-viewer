@@ -1,10 +1,15 @@
 import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { ViewerController } from "./viewer-controller";
+import { AnnotationStore } from "./annotation-store";
 
 export default class BeautifulPdfViewerPlugin extends Plugin {
   private controllers = new Map<WorkspaceLeaf, ViewerController>();
+  private store!: AnnotationStore;
 
   async onload() {
+    this.store = new AnnotationStore(this);
+    await this.store.load();
+
     this.registerEvent(this.app.workspace.on("file-open", () => this.sync()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.sync()));
@@ -32,7 +37,7 @@ export default class BeautifulPdfViewerPlugin extends Plugin {
       if (existing && existing.file.path === file.path) continue;
       if (existing) existing.destroy();
 
-      const controller = new ViewerController(this.app, view, file);
+      const controller = new ViewerController(this.app, view, file, this.store);
       this.controllers.set(leaf, controller);
       void controller.start();
     }

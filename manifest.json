@@ -1,0 +1,9 @@
+{
+  "id": "beautiful-pdf-viewer",
+  "name": "Beautiful PDF Viewer",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Improves PDF text selection in Obsidian using the ppdf library for character-accurate bounding boxes.",
+  "author": "chnaaam",
+  "isDesktopOnly": false
+}

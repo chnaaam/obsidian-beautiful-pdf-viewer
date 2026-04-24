@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node esbuild.config.mjs production)",
+      "Bash(echo \"EXIT=$?\")"
+    ]
+  }
+}

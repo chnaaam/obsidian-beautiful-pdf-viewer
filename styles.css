@@ -1,0 +1,29 @@
+/* Hide the native text layer on pages we manage, so ppdf-driven selection is the only visible one. */
+.page.bpv-enabled .textLayer {
+  display: none !important;
+}
+
+/* Transparent overlay that captures pointer events for custom selection. */
+.page.bpv-enabled .bpv-selection-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  cursor: text;
+  user-select: none;
+  background: transparent;
+}
+
+/* Highlights live inside the annotation layer when possible, otherwise pinned to page. */
+.page.bpv-enabled .bpv-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.page.bpv-enabled .bpv-highlight {
+  position: absolute;
+  background: rgba(80, 140, 255, 0.35);
+  border-radius: 1px;
+  mix-blend-mode: multiply;
+}

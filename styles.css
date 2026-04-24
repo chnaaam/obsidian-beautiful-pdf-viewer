@@ -1,46 +1,77 @@
-/* Hide native text layer on pages we manage. */
+/* Hide the native text layer entirely on pages we manage. We render our own
+   annotation/selection overlays using ppdf-derived char boxes, so the built-in
+   text layer is unnecessary and would otherwise intercept pointer events. */
 .page.bpv-enabled .textLayer {
   display: none !important;
+}
+
+/* Prevent the native annotation layer (which is CSS-transform scaled in modern
+   pdf.js) from intercepting our selection pointer events. We still let its
+   children (like link popups) render visually. */
+.page.bpv-enabled .annotationLayer {
+  pointer-events: none !important;
+}
+.page.bpv-enabled .annotationLayer a,
+.page.bpv-enabled .annotationLayer button,
+.page.bpv-enabled .annotationLayer input,
+.page.bpv-enabled .annotationLayer select,
+.page.bpv-enabled .annotationLayer textarea {
+  pointer-events: auto;
+}
+
+.page.bpv-enabled,
+.page.bpv-enabled * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.bpv-findbar-input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Our custom layers live directly under .page so their coordinate system
+   matches the rendered canvas 1:1 in CSS pixels. */
+.page.bpv-enabled .bpv-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.page.bpv-enabled .bpv-annot-layer {
+  z-index: 20;
+}
+
+.page.bpv-enabled .bpv-search-layer {
+  z-index: 21;
+}
+
+.page.bpv-enabled .bpv-selection-layer {
+  z-index: 22;
 }
 
 /* Transparent overlay that captures pointer events for custom selection. */
 .page.bpv-enabled .bpv-selection-overlay {
   position: absolute;
-  inset: 0;
-  z-index: 5;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 23;
   cursor: text;
   user-select: none;
   background: transparent;
 }
 
-.page.bpv-enabled .bpv-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.page.bpv-enabled .bpv-annot-layer {
-  z-index: 2;
-}
-
-.page.bpv-enabled .bpv-search-layer {
-  z-index: 3;
-}
-
-.page.bpv-enabled .bpv-selection-layer {
-  z-index: 4;
-}
-
-/* Persistent annotations */
+/* Persistent annotations — background-color is set inline via annotBg() */
 .bpv-annot {
   position: absolute;
   border-radius: 1px;
   mix-blend-mode: multiply;
 }
-.bpv-annot-yellow { background: rgba(255, 220, 70, 0.45); }
-.bpv-annot-blue   { background: rgba(80, 140, 255, 0.40); }
-.bpv-annot-red    { background: rgba(255, 90, 90, 0.40); }
-.bpv-annot-green  { background: rgba(80, 200, 120, 0.45); }
 
 /* Current drag selection */
 .bpv-selection {
@@ -62,49 +93,69 @@
   outline-color: rgba(220, 110, 0, 0.9);
 }
 
-/* Color picker / annotation toolbar anchored to a selection. */
-.bpv-toolbar {
-  position: absolute;
-  z-index: 10;
-  display: flex;
+/* ── Leaf toolbar (mounted in Obsidian's .view-actions bar) ─────────────── */
+
+.bpv-leaf-toolbar {
+  display: none; /* shown by JS when selection/annotation is active */
   align-items: center;
   gap: 4px;
-  padding: 4px 6px;
-  background: var(--background-primary, #fff);
-  border: 1px solid var(--background-modifier-border, #ccc);
-  border-radius: 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-  user-select: none;
+  padding: 0 4px;
+  /* A subtle left border acts as a visual separator from Obsidian's own icons */
+  border-left: 1px solid var(--background-modifier-border, rgba(255,255,255,0.15));
+  margin-right: 4px;
 }
-.bpv-toolbar-color {
-  width: 20px;
-  height: 20px;
+
+/* Color dot buttons inside the leaf toolbar */
+.bpv-leaf-toolbar .bpv-leaf-color {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 2px solid transparent;
-  cursor: pointer;
+  outline: none;
   padding: 0;
-}
-.bpv-toolbar-color.is-active {
-  border-color: var(--text-accent, #4a8);
-}
-.bpv-toolbar-color-yellow { background: rgb(255, 220, 70); }
-.bpv-toolbar-color-blue   { background: rgb(80, 140, 255); }
-.bpv-toolbar-color-red    { background: rgb(255, 90, 90); }
-.bpv-toolbar-color-green  { background: rgb(80, 200, 120); }
-.bpv-toolbar-delete {
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
+  margin: 0;
   cursor: pointer;
-  color: var(--text-muted, #888);
-  font-size: 14px;
-  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.bpv-leaf-toolbar .bpv-leaf-color:hover {
+  transform: scale(1.2);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.bpv-leaf-toolbar .bpv-leaf-color.is-active {
+  border-color: var(--text-on-accent, #fff);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.4), 0 1px 4px rgba(0,0,0,0.4);
+}
+/* !important overrides Obsidian's global button reset */
+.bpv-leaf-toolbar .bpv-leaf-color-yellow { background-color: #ffdc46 !important; }
+.bpv-leaf-toolbar .bpv-leaf-color-blue   { background-color: #508cff !important; }
+.bpv-leaf-toolbar .bpv-leaf-color-red    { background-color: #ff5a5a !important; }
+.bpv-leaf-toolbar .bpv-leaf-color-green  { background-color: #50c878 !important; }
+
+/* Delete button */
+.bpv-leaf-toolbar .bpv-leaf-delete {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent !important;
+  cursor: pointer;
+  color: var(--text-muted, rgba(255,255,255,0.5));
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
   border-radius: 4px;
 }
-.bpv-toolbar-delete:hover {
-  background: var(--background-modifier-hover, #eee);
-  color: var(--text-error, #c33);
+.bpv-leaf-toolbar .bpv-leaf-delete:hover {
+  background: var(--background-modifier-error, rgba(255,80,80,0.15)) !important;
+  color: var(--text-error, #f55);
 }
 
 /* Find bar (floating inside the PDF view container) */

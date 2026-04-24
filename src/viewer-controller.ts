@@ -4,7 +4,11 @@ import { PPDF } from "../ppdf/src";
 import { PageSelection, SearchHit } from "./page-selection";
 import { AnnotationStore, AnnotColor, Annotation } from "./annotation-store";
 import { FindBar, FindMatch } from "./find-bar";
-import { buildPageText, charsToText, textOffsetToCharIndex } from "./text-utils";
+import {
+  buildPageText,
+  charsToText,
+  textOffsetToCharIndex,
+} from "./text-utils";
 
 const ANNOT_COLORS: AnnotColor[] = ["#FFFF00", "#0000FF", "#FF0000", "#00FF00"];
 
@@ -57,7 +61,12 @@ export class ViewerController {
 
   // Leaf toolbar (mounted in Obsidian's .view-actions area)
   private leafToolbar?: HTMLElement;
-  private activeSelection?: { page: number; lo: number; hi: number; text: string };
+  private activeSelection?: {
+    page: number;
+    lo: number;
+    hi: number;
+    text: string;
+  };
   private activeAnnotation?: Annotation;
 
   constructor(
@@ -74,7 +83,11 @@ export class ViewerController {
       this.pdf = wrapObsidianProxy(proxy);
     } catch (err) {
       this.loadError = err;
-      console.error("[beautiful-pdf-viewer] failed to obtain PDF document", this.file.path, err);
+      console.error(
+        "[beautiful-pdf-viewer] failed to obtain PDF document",
+        this.file.path,
+        err,
+      );
       return;
     }
     if (this.destroyed) return;
@@ -82,7 +95,9 @@ export class ViewerController {
     this.buildLeafToolbar();
     this.attachObserver();
     this.attachKeydown();
-    this.unsubscribe = this.store.subscribe(this.file.path, () => this.refreshAnnotations());
+    this.unsubscribe = this.store.subscribe(this.file.path, () =>
+      this.refreshAnnotations(),
+    );
     this.scan();
   }
 
@@ -90,7 +105,11 @@ export class ViewerController {
     this.destroyed = true;
     this.observer?.disconnect();
     if (this.keydownHandler && this.view?.containerEl) {
-      this.view.containerEl.removeEventListener("keydown", this.keydownHandler, true);
+      this.view.containerEl.removeEventListener(
+        "keydown",
+        this.keydownHandler,
+        true,
+      );
     }
     this.unsubscribe?.();
     for (const handler of this.handlers.values()) {
@@ -115,7 +134,10 @@ export class ViewerController {
     // Fallback: read the file directly from the vault and parse with pdf.js
     // ourselves. This works even when the Obsidian PDF view never exposes its
     // document proxy to us (timing, internal refactors, protected fields, ...).
-    console.info("[beautiful-pdf-viewer] Obsidian PDF proxy unavailable, loading file directly", this.file.path);
+    console.info(
+      "[beautiful-pdf-viewer] Obsidian PDF proxy unavailable, loading file directly",
+      this.file.path,
+    );
     const buffer = await this.app.vault.readBinary(this.file);
     if (this.destroyed) return null;
     const task = (pdfjsModule as any).getDocument({
@@ -148,9 +170,18 @@ export class ViewerController {
       if (!node || typeof node !== "object" || seen.has(node)) continue;
       seen.add(node);
       if (this.looksLikeDocumentProxy(node)) return node;
-      for (const key of ["pdfDocument", "pdf", "pdfViewer", "viewer", "child", "children", "_child"]) {
+      for (const key of [
+        "pdfDocument",
+        "pdf",
+        "pdfViewer",
+        "viewer",
+        "child",
+        "children",
+        "_child",
+      ]) {
         const value = node[key];
-        if (value && typeof value === "object" && !seen.has(value)) queue.push(value);
+        if (value && typeof value === "object" && !seen.has(value))
+          queue.push(value);
       }
     }
     return null;
@@ -158,7 +189,8 @@ export class ViewerController {
 
   private looksLikeDocumentProxy(value: any): boolean {
     if (!value || typeof value !== "object") return false;
-    const hasNumPages = typeof value.numPages === "number" && value.numPages > 0;
+    const hasNumPages =
+      typeof value.numPages === "number" && value.numPages > 0;
     const hasGetPage = typeof value.getPage === "function";
     return hasNumPages && hasGetPage;
   }
@@ -185,7 +217,8 @@ export class ViewerController {
     if (!container) return;
     this.keydownHandler = (e) => this.onKeyDown(e);
     container.addEventListener("keydown", this.keydownHandler, true);
-    if (!container.hasAttribute("tabindex")) container.setAttribute("tabindex", "-1");
+    if (!container.hasAttribute("tabindex"))
+      container.setAttribute("tabindex", "-1");
   }
 
   private onKeyDown(e: KeyboardEvent) {
@@ -196,7 +229,11 @@ export class ViewerController {
       e.stopPropagation();
       this.openFind();
     } else if (e.key === "a" || e.key === "A") {
-      if ((e.target as HTMLElement)?.tagName === "INPUT" || (e.target as HTMLElement)?.tagName === "TEXTAREA") return;
+      if (
+        (e.target as HTMLElement)?.tagName === "INPUT" ||
+        (e.target as HTMLElement)?.tagName === "TEXTAREA"
+      )
+        return;
       e.preventDefault();
       e.stopPropagation();
       this.selectAllOnCurrentPage();
@@ -209,14 +246,18 @@ export class ViewerController {
       if (!host) return;
       this.findBar = new FindBar(host, {
         runSearch: (q, cs) => this.runSearch(q, cs),
-        onMatchesChanged: (matches, activeIdx) => this.applySearchMatches(matches, activeIdx),
+        onMatchesChanged: (matches, activeIdx) =>
+          this.applySearchMatches(matches, activeIdx),
         onJumpTo: (m) => this.jumpToMatch(m),
       });
     }
     this.findBar.open();
   }
 
-  private async runSearch(query: string, caseSensitive: boolean): Promise<FindMatch[]> {
+  private async runSearch(
+    query: string,
+    caseSensitive: boolean,
+  ): Promise<FindMatch[]> {
     if (!this.pdf) return [];
     const pageCount = (this.pdf as any).documentProxy?.numPages ?? 0;
     const results: FindMatch[] = [];
@@ -226,13 +267,19 @@ export class ViewerController {
       const data = await this.loadPageData(p);
       if (!data) continue;
       const pageText = buildPageText(data.chars);
-      const source = caseSensitive ? pageText.text : pageText.text.toLowerCase();
+      const source = caseSensitive
+        ? pageText.text
+        : pageText.text.toLowerCase();
       let pos = 0;
       while (pos <= source.length - needle.length) {
         const idx = source.indexOf(needle, pos);
         if (idx < 0) break;
         const startIdx = textOffsetToCharIndex(pageText.charMap, idx, "start");
-        const endIdx = textOffsetToCharIndex(pageText.charMap, idx + needle.length, "end");
+        const endIdx = textOffsetToCharIndex(
+          pageText.charMap,
+          idx + needle.length,
+          "end",
+        );
         if (startIdx < 0 || endIdx < startIdx) {
           pos = idx + Math.max(1, needle.length);
           continue;
@@ -255,7 +302,11 @@ export class ViewerController {
     const byPage = new Map<number, SearchHit[]>();
     matches.forEach((m, i) => {
       const list = byPage.get(m.page) ?? [];
-      list.push({ startIdx: m.startIdx, endIdx: m.endIdx, active: i === activeIdx });
+      list.push({
+        startIdx: m.startIdx,
+        endIdx: m.endIdx,
+        active: i === activeIdx,
+      });
       byPage.set(m.page, list);
     });
     for (const [pageNum, handler] of this.handlers) {
@@ -268,7 +319,9 @@ export class ViewerController {
     if (handler) {
       handler.scrollToCharRange(m.startIdx, m.endIdx);
     } else {
-      const pageEl = this.viewerRoot?.querySelector<HTMLElement>(`.page[data-page-number="${m.page}"]`);
+      const pageEl = this.viewerRoot?.querySelector<HTMLElement>(
+        `.page[data-page-number="${m.page}"]`,
+      );
       pageEl?.scrollIntoView({ block: "center" });
     }
     // Re-apply active styling
@@ -281,13 +334,20 @@ export class ViewerController {
     const centerY = rect.top + rect.height / 2;
     let bestEl: HTMLElement | null = null;
     let bestDist = Infinity;
-    this.viewerRoot.querySelectorAll<HTMLElement>(".page[data-page-number]").forEach((el) => {
-      const r = el.getBoundingClientRect();
-      const dist = Math.abs(r.top + r.height / 2 - centerY);
-      if (dist < bestDist) { bestDist = dist; bestEl = el; }
-    });
+    this.viewerRoot
+      .querySelectorAll<HTMLElement>(".page[data-page-number]")
+      .forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const dist = Math.abs(r.top + r.height / 2 - centerY);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestEl = el;
+        }
+      });
     if (!bestEl) return;
-    const pageNumber = Number((bestEl as HTMLElement).getAttribute("data-page-number"));
+    const pageNumber = Number(
+      (bestEl as HTMLElement).getAttribute("data-page-number"),
+    );
     const handler = this.handlers.get(pageNumber);
     handler?.selectAll();
   }
@@ -303,7 +363,9 @@ export class ViewerController {
 
   private scan() {
     if (this.loadError || this.destroyed || !this.viewerRoot) return;
-    const pages = this.viewerRoot.querySelectorAll<HTMLElement>(".page[data-page-number]");
+    const pages = this.viewerRoot.querySelectorAll<HTMLElement>(
+      ".page[data-page-number]",
+    );
     pages.forEach((el) => this.attachPage(el));
   }
 
@@ -317,9 +379,12 @@ export class ViewerController {
     const containerEl = this.view?.containerEl as HTMLElement | undefined;
     if (!containerEl) return;
     // Try the standard Obsidian view-actions bar; fall back to the view header.
+    // const actionsEl =
+    //   containerEl.querySelector<HTMLElement>(".view-actions") ??
+    //   containerEl.querySelector<HTMLElement>(".view-header") ??
+    //   containerEl;
     const actionsEl =
-      containerEl.querySelector<HTMLElement>(".view-actions") ??
-      containerEl.querySelector<HTMLElement>(".view-header") ??
+      containerEl.querySelector<HTMLElement>(".pdf-toolbar-right") ??
       containerEl;
 
     const toolbar = document.createElement("div");
@@ -353,13 +418,20 @@ export class ViewerController {
     this.leafToolbar = toolbar;
   }
 
-  private showLeafToolbar(mode: "selection" | "annotation", activeColor?: AnnotColor) {
+  private showLeafToolbar(
+    mode: "selection" | "annotation",
+    activeColor?: AnnotColor,
+  ) {
     if (!this.leafToolbar) return;
-    this.leafToolbar.querySelectorAll<HTMLElement>(".bpv-leaf-color").forEach((btn) => {
-      const isActive = mode === "annotation" && btn.dataset.color === activeColor;
-      btn.classList.toggle("is-active", isActive);
-    });
-    const delBtn = this.leafToolbar.querySelector<HTMLElement>(".bpv-leaf-delete");
+    this.leafToolbar
+      .querySelectorAll<HTMLElement>(".bpv-leaf-color")
+      .forEach((btn) => {
+        const isActive =
+          mode === "annotation" && btn.dataset.color === activeColor;
+        btn.classList.toggle("is-active", isActive);
+      });
+    const delBtn =
+      this.leafToolbar.querySelector<HTMLElement>(".bpv-leaf-delete");
     if (delBtn) delBtn.style.display = mode === "annotation" ? "" : "none";
     this.leafToolbar.style.display = "flex";
   }
@@ -371,7 +443,13 @@ export class ViewerController {
   private applyLeafColor(color: AnnotColor) {
     if (this.activeSelection) {
       const { page, lo, hi, text } = this.activeSelection;
-      this.store.add(this.file.path, { page, startIdx: lo, endIdx: hi, color, text });
+      this.store.add(this.file.path, {
+        page,
+        startIdx: lo,
+        endIdx: hi,
+        color,
+        text,
+      });
       this.handlers.get(page)?.clearSelection();
       this.activeSelection = undefined;
       this.hideLeafToolbar();
@@ -426,7 +504,13 @@ export class ViewerController {
     const hits = this.activeSearchMatches
       .map((m, i) => ({ m, i }))
       .filter(({ m }) => m.page === pageNumber)
-      .map(({ m, i }): SearchHit => ({ startIdx: m.startIdx, endIdx: m.endIdx, active: i === this.activeMatchIdx }));
+      .map(
+        ({ m, i }): SearchHit => ({
+          startIdx: m.startIdx,
+          endIdx: m.endIdx,
+          active: i === this.activeMatchIdx,
+        }),
+      );
     handler.setSearchHits(hits);
     this.handlers.set(pageNumber, handler);
   }
@@ -457,7 +541,11 @@ export class ViewerController {
         this.scheduleScan();
         return data;
       } catch (err) {
-        console.error("[beautiful-pdf-viewer] failed to parse page", pageNumber, err);
+        console.error(
+          "[beautiful-pdf-viewer] failed to parse page",
+          pageNumber,
+          err,
+        );
         return null;
       }
     })();

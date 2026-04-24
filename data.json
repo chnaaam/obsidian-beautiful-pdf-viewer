@@ -4,33 +4,6 @@
     "99_Archive/TransInferSim_Toward_Fast_and_Accurate_Evaluation_of_Embedded_Hardware_Accelerators_for_Transformer_Networks.pdf": [
       {
         "page": 1,
-        "startIdx": 931,
-        "endIdx": 1125,
-        "color": "#FFFF00",
-        "text": "-AI. Due to their architecture, hardware accelerators can leverage massive parallelism, especially when processing attention head operations. While accelerators for Transformers are being discussed in the literature, effici",
-        "id": "o4cgg8wemocgffj6",
-        "created": 1777007574114
-      },
-      {
-        "page": 1,
-        "startIdx": 1224,
-        "endIdx": 1413,
-        "color": "#00FF00",
-        "text": "nsively. In this paper, we introduce TransInferSim, a novel tool that combines cycle-accurate simulation for performance estimation (including latency, memory usage, memory access counts, and computation counts) with a",
-        "id": "t9wkp9bpmocgflpo",
-        "created": 1777007582124
-      },
-      {
-        "page": 1,
-        "startIdx": 1680,
-        "endIdx": 1811,
-        "color": "#FFFF00",
-        "text": "s for the accurate determination of cache misses at different levels and with different victim selection configurations. It supports different memory hier",
-        "id": "806jrbnemocgowrl",
-        "created": 1777008016353
-      },
-      {
-        "page": 1,
         "startIdx": 2066,
         "endIdx": 2430,
         "color": "#0000FF",
@@ -55,6 +28,15 @@
         "text": "ieved up to 10× latency reduction and 6× area savings for the ViTTiny vision Transformer. The tool is available",
         "id": "4hc9fxyxmocgp76s",
         "created": 1777008029860
+      },
+      {
+        "page": 1,
+        "startIdx": 1773,
+        "endIdx": 1810,
+        "color": "#0000FF",
+        "text": "gurations. It supports different memory hie",
+        "id": "4xxkg5nbmocgunc9",
+        "created": 1777008284073
       }
     ]
   }

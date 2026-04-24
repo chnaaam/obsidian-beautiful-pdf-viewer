@@ -1,5 +1,17 @@
 import type { CharBox, PageData } from "./viewer-controller";
 import type { AnnotColor, Annotation } from "./annotation-store";
+import { charsToText, findWordBoundaries } from "./text-utils";
+
+/** Map annotation hex color to a semi-transparent highlight RGBA. */
+function annotBg(color: AnnotColor): string {
+  switch (color) {
+    case "#FFFF00": return "rgba(255, 220, 70, 0.45)";
+    case "#0000FF": return "rgba(80, 140, 255, 0.40)";
+    case "#FF0000": return "rgba(255, 90, 90, 0.40)";
+    case "#00FF00": return "rgba(80, 200, 120, 0.45)";
+    default:        return "rgba(255, 220, 70, 0.45)";
+  }
+}
 
 interface Point {
   x: number;
@@ -20,12 +32,13 @@ export interface SearchHit {
 }
 
 export interface PageSelectionCallbacks {
-  onCreateAnnotation: (pageNumber: number, startIdx: number, endIdx: number, color: AnnotColor, text: string) => void;
-  onUpdateAnnotation: (id: string, color: AnnotColor) => void;
-  onDeleteAnnotation: (id: string) => void;
+  /** Called when the user finishes dragging / double-clicking and has a non-empty selection. */
+  onSelectionReady: (pageNumber: number, lo: number, hi: number, text: string) => void;
+  /** Called when the selection is cleared (pointer-down on empty area, or after annotation applied). */
+  onSelectionCleared: () => void;
+  /** Called when the user clicks on an existing annotation highlight. */
+  onAnnotationClicked: (annotation: Annotation) => void;
 }
-
-const COLORS: AnnotColor[] = ["yellow", "blue", "red", "green"];
 
 export class PageSelection {
   private pageEl: HTMLElement;
@@ -33,7 +46,6 @@ export class PageSelection {
   private annotLayer!: HTMLDivElement;
   private selectionLayer!: HTMLDivElement;
   private searchLayer!: HTMLDivElement;
-  private toolbar?: HTMLDivElement;
   private dragging = false;
   private startPoint?: Point;
   private endPoint?: Point;
@@ -41,6 +53,9 @@ export class PageSelection {
   private lastWidth = 0;
   private annotations: Annotation[] = [];
   private searchHits: SearchHit[] = [];
+  private readonly suppressNativeSelection = (e: Event) => {
+    e.preventDefault();
+  };
 
   constructor(
     pageEl: HTMLElement,
@@ -69,6 +84,7 @@ export class PageSelection {
     this.selectionLayer.className = "bpv-layer bpv-selection-layer";
 
     this.mountInto(this.pageEl);
+    this.bindNativeSelectionSuppression();
 
     this.resizeObserver = new ResizeObserver(() => this.onPageResize());
     this.resizeObserver.observe(this.pageEl);
@@ -81,17 +97,17 @@ export class PageSelection {
   ensureAttached(el: HTMLElement) {
     if (this.pageEl !== el) {
       this.resizeObserver?.disconnect();
+      this.unbindNativeSelectionSuppression();
       this.pageEl = el;
       this.resizeObserver = new ResizeObserver(() => this.onPageResize());
       this.resizeObserver.observe(this.pageEl);
       this.lastWidth = this.pageEl.clientWidth;
+      this.bindNativeSelectionSuppression();
     }
-    const annotationHostEl = this.pageEl.querySelector<HTMLElement>(".annotationLayer");
-    const host = annotationHostEl ?? this.pageEl;
     const layersDetached =
-      this.annotLayer.parentElement !== host ||
-      this.searchLayer.parentElement !== host ||
-      this.selectionLayer.parentElement !== host ||
+      this.annotLayer.parentElement !== this.pageEl ||
+      this.searchLayer.parentElement !== this.pageEl ||
+      this.selectionLayer.parentElement !== this.pageEl ||
       this.overlay.parentElement !== this.pageEl;
     if (layersDetached) {
       this.mountInto(this.pageEl);
@@ -104,12 +120,11 @@ export class PageSelection {
   detach() {
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
+    this.unbindNativeSelectionSuppression();
     this.overlay.remove();
     this.annotLayer.remove();
     this.searchLayer.remove();
     this.selectionLayer.remove();
-    this.toolbar?.remove();
-    this.toolbar = undefined;
   }
 
   setAnnotations(anns: Annotation[]) {
@@ -127,14 +142,14 @@ export class PageSelection {
     this.startPoint = centerOf(this.data.chars[0]);
     this.endPoint = centerOf(this.data.chars[this.data.chars.length - 1]);
     this.renderSelection();
-    this.showColorPickerForSelection();
+    this.notifySelectionReady();
   }
 
   clearSelection() {
     this.startPoint = undefined;
     this.endPoint = undefined;
     this.renderSelection();
-    this.hideToolbar();
+    this.callbacks.onSelectionCleared();
   }
 
   scrollToCharRange(startIdx: number, endIdx: number) {
@@ -153,45 +168,65 @@ export class PageSelection {
   }
 
   private mountInto(pageEl: HTMLElement) {
-    const annotationLayer = pageEl.querySelector<HTMLElement>(".annotationLayer");
-    const host = annotationLayer ?? pageEl;
-    host.appendChild(this.annotLayer);
-    host.appendChild(this.searchLayer);
-    host.appendChild(this.selectionLayer);
+    // Mount directly into the .page element. PDF.js' .annotationLayer uses its
+    // own CSS-scaled coordinate space (transform: scale(...)), so attaching our
+    // overlays there would misalign them with the rendered canvas. The .page
+    // element's box matches the visible canvas 1:1 in CSS pixels.
+    pageEl.appendChild(this.annotLayer);
+    pageEl.appendChild(this.searchLayer);
+    pageEl.appendChild(this.selectionLayer);
     pageEl.appendChild(this.overlay);
   }
 
+  private bindNativeSelectionSuppression() {
+    this.unbindNativeSelectionSuppression();
+    this.pageEl.addEventListener("selectstart", this.suppressNativeSelection);
+    this.pageEl.addEventListener("dragstart", this.suppressNativeSelection);
+  }
+
+  private unbindNativeSelectionSuppression() {
+    this.pageEl.removeEventListener("selectstart", this.suppressNativeSelection);
+    this.pageEl.removeEventListener("dragstart", this.suppressNativeSelection);
+  }
+
   private onPageResize() {
-    const width = this.pageEl.clientWidth;
-    if (width === 0 || width === this.lastWidth) return;
+    const width =
+      this.overlay?.getBoundingClientRect().width ?? this.pageEl.clientWidth;
+    if (width === 0 || Math.abs(width - this.lastWidth) < 0.5) return;
     this.lastWidth = width;
     this.renderAnnotations();
     this.renderSearch();
     this.renderSelection();
-    this.repositionToolbar();
   }
 
   private scale(): number {
-    return this.pageEl.clientWidth / this.data.pdfWidth;
+    const overlayWidth = this.overlay?.getBoundingClientRect().width ?? 0;
+    const base = overlayWidth > 0 ? overlayWidth : this.pageEl.clientWidth;
+    if (base <= 0 || this.data.pdfWidth <= 0) return 1;
+    return base / this.data.pdfWidth;
   }
 
   private toPdfCoords(e: PointerEvent | MouseEvent): Point {
-    const rect = this.pageEl.getBoundingClientRect();
-    const s = this.scale() || 1;
+    const rect = this.overlay.getBoundingClientRect();
+    const s =
+      (rect.width > 0 ? rect.width : this.pageEl.clientWidth) /
+        (this.data.pdfWidth || 1) || 1;
     return { x: (e.clientX - rect.left) / s, y: (e.clientY - rect.top) / s };
   }
 
   private onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
+    window.getSelection()?.removeAllRanges();
     const p = this.toPdfCoords(e);
     const hitAnnot = this.hitTestAnnotation(p);
     if (hitAnnot) {
-      this.showAnnotationToolbar(hitAnnot);
+      this.callbacks.onAnnotationClicked(hitAnnot);
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-    this.hideToolbar();
+    // Click on empty area: clear any active selection/annotation state
+    this.callbacks.onSelectionCleared();
     this.dragging = true;
     try {
       this.overlay.setPointerCapture(e.pointerId);
@@ -222,30 +257,42 @@ export class PageSelection {
     this.renderSelection();
     const chars = this.selectedChars();
     if (chars.length === 0) {
-      this.hideToolbar();
+      this.callbacks.onSelectionCleared();
       return;
     }
-    this.showColorPickerForSelection();
+    this.notifySelectionReady();
   };
 
   private onDoubleClick = (e: MouseEvent) => {
     const point = this.toPdfCoords(e);
     const idx = findCharIndex(this.data.chars, point);
     if (idx < 0) return;
-    const [lo, hi] = wordRange(this.data.chars, idx);
-    if (lo < 0) return;
+    const range = findWordBoundaries(this.data.chars, idx);
+    if (!range) return;
+    const [lo, hi] = range;
     this.startPoint = centerOf(this.data.chars[lo]);
     this.endPoint = centerOf(this.data.chars[hi]);
     this.renderSelection();
-    this.showColorPickerForSelection();
+    this.notifySelectionReady();
   };
+
+  private notifySelectionReady() {
+    const range = this.selectedIndices();
+    if (!range) return;
+    const [lo, hi] = range;
+    const text = charsToText(this.data.chars.slice(lo, hi + 1));
+    if (navigator.clipboard)
+      void navigator.clipboard.writeText(text).catch(() => {});
+    this.callbacks.onSelectionReady(this.data.pageNumber, lo, hi, text);
+  }
 
   private hitTestAnnotation(p: Point): Annotation | null {
     for (const a of this.annotations) {
       for (let i = a.startIdx; i <= a.endIdx; i += 1) {
         const c = this.data.chars[i];
         if (!c) continue;
-        if (p.x >= c.x0 && p.x <= c.x1 && p.y >= c.top && p.y <= c.bottom) return a;
+        if (p.x >= c.x0 && p.x <= c.x1 && p.y >= c.top && p.y <= c.bottom)
+          return a;
       }
     }
     return null;
@@ -259,7 +306,8 @@ export class PageSelection {
       if (chars.length === 0) continue;
       for (const line of groupIntoLines(chars)) {
         const div = document.createElement("div");
-        div.className = `bpv-annot bpv-annot-${a.color}`;
+        div.className = "bpv-annot";
+        div.style.backgroundColor = annotBg(a.color);
         div.dataset.annotId = a.id;
         applyRect(div, line, s);
         this.annotLayer.appendChild(div);
@@ -316,109 +364,6 @@ export class PageSelection {
     if (aIdx < 0 || bIdx < 0) return null;
     return aIdx <= bIdx ? [aIdx, bIdx] : [bIdx, aIdx];
   }
-
-  private showColorPickerForSelection() {
-    const range = this.selectedIndices();
-    if (!range) return;
-    const [lo, hi] = range;
-    const text = this.data.chars.slice(lo, hi + 1).map((c) => c.text).join("");
-    if (navigator.clipboard) void navigator.clipboard.writeText(text).catch(() => {});
-    this.renderToolbar({
-      anchor: this.data.chars.slice(lo, hi + 1),
-      buttons: COLORS.map((color) => ({
-        color,
-        onClick: () => {
-          this.callbacks.onCreateAnnotation(this.data.pageNumber, lo, hi, color, text);
-          this.clearSelection();
-        },
-      })),
-    });
-  }
-
-  private showAnnotationToolbar(a: Annotation) {
-    const chars = this.data.chars.slice(a.startIdx, a.endIdx + 1);
-    this.renderToolbar({
-      anchor: chars,
-      buttons: COLORS.map((color) => ({
-        color,
-        active: color === a.color,
-        onClick: () => {
-          this.callbacks.onUpdateAnnotation(a.id, color);
-          this.hideToolbar();
-        },
-      })),
-      onDelete: () => {
-        this.callbacks.onDeleteAnnotation(a.id);
-        this.hideToolbar();
-      },
-    });
-  }
-
-  private renderToolbar(opts: {
-    anchor: CharBox[];
-    buttons: Array<{ color: AnnotColor; active?: boolean; onClick: () => void }>;
-    onDelete?: () => void;
-  }) {
-    this.hideToolbar();
-    const toolbar = document.createElement("div");
-    toolbar.className = "bpv-toolbar";
-    toolbar.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    for (const b of opts.buttons) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = `bpv-toolbar-color bpv-toolbar-color-${b.color}${b.active ? " is-active" : ""}`;
-      btn.setAttribute("aria-label", b.color);
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        b.onClick();
-      });
-      toolbar.appendChild(btn);
-    }
-
-    if (opts.onDelete) {
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "bpv-toolbar-delete";
-      del.setAttribute("aria-label", "delete");
-      del.textContent = "✕";
-      del.addEventListener("click", (e) => {
-        e.preventDefault();
-        opts.onDelete!();
-      });
-      toolbar.appendChild(del);
-    }
-
-    this.pageEl.appendChild(toolbar);
-    this.toolbar = toolbar;
-    this.positionToolbar(opts.anchor);
-  }
-
-  private repositionToolbar() {
-    if (!this.toolbar) return;
-    // We don't track anchor; remove for simplicity on resize.
-    // Re-show is done on next interaction.
-  }
-
-  private positionToolbar(anchor: CharBox[]) {
-    if (!this.toolbar || anchor.length === 0) return;
-    const s = this.scale();
-    let minX = Infinity;
-    let minTop = Infinity;
-    for (const c of anchor) {
-      if (c.x0 < minX) minX = c.x0;
-      if (c.top < minTop) minTop = c.top;
-    }
-    const left = Math.max(4, minX * s);
-    const top = Math.max(4, minTop * s - 34);
-    this.toolbar.style.left = `${left}px`;
-    this.toolbar.style.top = `${top}px`;
-  }
-
-  private hideToolbar() {
-    this.toolbar?.remove();
-    this.toolbar = undefined;
-  }
 }
 
 function centerOf(c: CharBox): Point {
@@ -443,21 +388,6 @@ function findCharIndex(chars: CharBox[], p: Point): number {
     }
   }
   return best;
-}
-
-function wordRange(chars: CharBox[], index: number): [number, number] {
-  const isWord = (ch: string) => /\S/.test(ch);
-  if (!isWord(chars[index]?.text ?? "")) return [-1, -1];
-  let lo = index;
-  let hi = index;
-  while (lo > 0 && isWord(chars[lo - 1].text) && sameLine(chars[lo - 1], chars[lo])) lo -= 1;
-  while (hi < chars.length - 1 && isWord(chars[hi + 1].text) && sameLine(chars[hi], chars[hi + 1])) hi += 1;
-  return [lo, hi];
-}
-
-function sameLine(a: CharBox, b: CharBox): boolean {
-  const h = Math.min(a.bottom - a.top, b.bottom - b.top) || 1;
-  return Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < h * 0.6;
 }
 
 function groupIntoLines(chars: CharBox[]): LineRect[] {

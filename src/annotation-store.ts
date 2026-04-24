@@ -1,6 +1,6 @@
 import type { Plugin } from "obsidian";
 
-export type AnnotColor = "yellow" | "blue" | "red" | "green";
+export type AnnotColor = "#FFFF00" | "#0000FF" | "#FF0000" | "#00FF00";
 
 export interface Annotation {
   id: string;
